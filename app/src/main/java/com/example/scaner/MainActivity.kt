@@ -2,7 +2,7 @@ package com.example.scaner
 
 import android.Manifest
 import android.content.ContentValues
-import android.content.Context
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.MediaStore
@@ -15,62 +15,54 @@ import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
+import androidx.compose.animation.*
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.VerticalAlignmentLine
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.zIndex
 import androidx.core.content.ContextCompat
+import coil.compose.rememberAsyncImagePainter
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberPermissionState
 import java.text.SimpleDateFormat
 import java.util.Locale
-import java.util.concurrent.ExecutorService
-import java.util.concurrent.Executors
 
 class MainActivity : ComponentActivity() {
-
-    private lateinit var cameraExecutor: ExecutorService
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        cameraExecutor = Executors.newSingleThreadExecutor()
-
         setContent {
             MaterialTheme {
-                CameraApp(cameraExecutor = cameraExecutor)
+                CameraApp()
             }
         }
-    }
-
-    override fun onDestroy() {
-        super.onDestroy()
-        cameraExecutor.shutdown()
     }
 }
 
 @OptIn(ExperimentalPermissionsApi::class)
 @Composable
-fun CameraApp(cameraExecutor: ExecutorService) {
+fun CameraApp() {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
+    var imageCapture by remember { mutableStateOf<ImageCapture?>(null) }
+    var lastCapturedUri by remember { mutableStateOf<Uri?>(null) }
 
-    // Разрешение на камеру
-    val cameraPermissionState = rememberPermissionState(
-        Manifest.permission.CAMERA
-    )
+    val cameraPermissionState = rememberPermissionState(Manifest.permission.CAMERA)
 
     LaunchedEffect(Unit) {
         if (!cameraPermissionState.status.isGranted) {
@@ -79,76 +71,119 @@ fun CameraApp(cameraExecutor: ExecutorService) {
     }
 
     if (!cameraPermissionState.status.isGranted) {
-        Box(
-            modifier = Modifier.fillMaxSize(),
-            contentAlignment = Alignment.Center
-        ) {
-            Text("Требуется разрешение на камеру")
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text("Требуется разрешение на камеру", color = Color.White)
         }
         return
     }
 
-    var imageCapture by remember { mutableStateOf<ImageCapture?>(null) }
-
-    Box(modifier = Modifier.fillMaxSize()) {
-        // Превью камеры
+    Box(Modifier.fillMaxSize()) {
+        // Камера
         AndroidView(
             factory = { ctx ->
                 val previewView = PreviewView(ctx).apply {
-                    this.scaleType = PreviewView.ScaleType.FILL_CENTER
+                    scaleType = PreviewView.ScaleType.FILL_CENTER
                 }
-
                 val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
-
                 cameraProviderFuture.addListener({
                     val cameraProvider = cameraProviderFuture.get()
-
                     val preview = Preview.Builder().build().also {
                         it.setSurfaceProvider(previewView.surfaceProvider)
                     }
-
                     imageCapture = ImageCapture.Builder()
                         .setTargetRotation(previewView.display.rotation)
                         .build()
 
-                    val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
-
-                    try {
-                        cameraProvider.unbindAll()
-                        cameraProvider.bindToLifecycle(
-                            lifecycleOwner,
-                            cameraSelector,
-                            preview,
-                            imageCapture
-                        )
-                    } catch (exc: Exception) {
-                        exc.printStackTrace()
-                    }
+                    cameraProvider.unbindAll()
+                    cameraProvider.bindToLifecycle(
+                        lifecycleOwner,
+                        CameraSelector.DEFAULT_BACK_CAMERA,
+                        preview,
+                        imageCapture
+                    )
                 }, ContextCompat.getMainExecutor(ctx))
-
                 previewView
             },
             modifier = Modifier.fillMaxSize()
         )
 
-        Row(
+        AnimatedVisibility(
+            visible = lastCapturedUri != null,
+            enter = fadeIn() + scaleIn(initialScale = 0.85f),
+            exit = fadeOut() + scaleOut(targetScale = 0.85f),
+            modifier = Modifier.fillMaxSize()
+        ) {
+            lastCapturedUri?.let { uri ->
+                Box(Modifier
+                    .fillMaxSize()
+                    .background(color = Color.Gray.copy(alpha = 0.6f))
+                    .padding(top = 20.dp)) {
+                    Image(
+                        painter = rememberAsyncImagePainter(uri),
+                        contentDescription = null,
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier
+                            .padding(12.dp)
+                            .clip(RoundedCornerShape(24.dp))
+                            .border(2.dp, Color(0xFF00FF00), RoundedCornerShape(24.dp)),
+                            alignment = Alignment.BottomCenter
+                    )
+                    IconButton(
+                        onClick = { lastCapturedUri = null },
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(16.dp)
+                            .size(48.dp)
+                            .background(Color.Black.copy(alpha = 0.6f), CircleShape)
+                    ) {
+                        Text("×", color = Color.White, style = MaterialTheme.typography.headlineMedium)
+                    }
+
+                    Button(
+                        onClick = {
+                            Toast.makeText(context, "Распознавание запущено...", Toast.LENGTH_SHORT).show()
+                        },
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .padding(bottom = 150.dp)
+                            .fillMaxWidth(0.85f)
+                            .height(64.dp),
+                        shape = RoundedCornerShape(32.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color.White)
+                    ) {
+                        Text(
+                            "Распознать",
+                            color = Color.Black,
+                            style = MaterialTheme.typography.titleLarge
+                        )
+                    }
+                }
+            }
+        }
+
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .align(Alignment.BottomCenter)
-                .padding(32.dp),
-            horizontalArrangement = Arrangement.Center
+                .padding(bottom = 40.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
             IconButton(
-                onClick = { takePhoto(imageCapture, context, cameraExecutor) },
+                onClick = {
+                    takePhoto(imageCapture, context) { uri ->
+                        lastCapturedUri = uri
+                    }
+                },
                 modifier = Modifier
                     .size(80.dp)
                     .clip(CircleShape)
                     .background(Color.White)
-                    .border(4.dp, Color.White, CircleShape)
+                    .border(6.dp, Color.White, CircleShape)
+                    .zIndex(10f)
             ) {
                 Box(
                     modifier = Modifier
-                        .size(70.dp)
+                        .size(68.dp)
                         .clip(CircleShape)
                         .background(Color.White)
                         .border(4.dp, Color.Black.copy(alpha = 0.3f), CircleShape)
@@ -161,7 +196,7 @@ fun CameraApp(cameraExecutor: ExecutorService) {
 private fun takePhoto(
     imageCapture: ImageCapture?,
     context: android.content.Context,
-    executor: ExecutorService
+    onPhotoSaved: (Uri) -> Unit
 ) {
     if (imageCapture == null) return
 
@@ -186,13 +221,11 @@ private fun takePhoto(
         outputOptions,
         ContextCompat.getMainExecutor(context),
         object : ImageCapture.OnImageSavedCallback {
-            override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) {
-                val msg = "Фото сохранено: ${outputFileResults.savedUri}"
-                Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+            override fun onImageSaved(output: ImageCapture.OutputFileResults) {
+                output.savedUri?.let { onPhotoSaved(it) }
             }
-
-            override fun onError(exception: ImageCaptureException) {
-                Toast.makeText(context, "Ошибка: ${exception.message}", Toast.LENGTH_LONG).show()
+            override fun onError(e: ImageCaptureException) {
+                Toast.makeText(context, "Ошибка: ${e.message}", Toast.LENGTH_LONG).show()
             }
         }
     )

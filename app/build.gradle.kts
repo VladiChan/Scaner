@@ -53,6 +53,7 @@ android {
 
 dependencies {
 
+    implementation("io.coil-kt:coil-compose:2.7.0")
     val camerax_version = "1.3.1"
 
     implementation("androidx.camera:camera-core:$camerax_version")
