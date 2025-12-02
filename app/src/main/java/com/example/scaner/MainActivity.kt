@@ -66,7 +66,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private const val GEMINI_API_KEY = "AIzaSyCep-XO6KQoKdxlPGZeYWZYcUpLAd817YY"
+private const val GEMINI_API_KEY = "AIzaSyBEmsx3jsr8cU3dyUPV000F1yohjOvHUQk"
 
 private val geminiModel by lazy {
     GenerativeModel(
